@@ -8,9 +8,10 @@ import "@nomicfoundation/hardhat-toolbox";
 const config: HardhatUserConfig = {
   solidity: "0.8.0",
   networks: {
-    rinkeby: {
+    sepolia: {
       url: process.env.INFURA_URL,
       accounts: [process.env.PRIVATE_KEY!],
+      chainId: 11155111,
     },
   },
   typechain: {
