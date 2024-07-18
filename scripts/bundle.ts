@@ -57,34 +57,53 @@ async function main() {
 
   const uniswapRouter = new ethers.Contract(UNISWAP_V2_ROUTER02_ADDRESS, uniswapRouterAbi, contractDeployer);
 
-  // Build transactions for the bundle
-  const approveTx = await tokenContract.populateTransaction.approve(UNISWAP_V2_ROUTER02_ADDRESS, ethers.utils.parseUnits(config.liquidityAmount.toString(), 18));
+  // Fetch current nonces
+  let contractDeployerNonce = await provider.getTransactionCount(contractDeployer.address, "pending");
+  let fundingWalletNonce = await provider.getTransactionCount(fundingWallet.address, "pending");
+  const sniperWalletsNonces = await Promise.all(sniperWallets.map(wallet => provider.getTransactionCount(wallet.address, "pending")));
 
-  const addLiquidityTx = await uniswapRouter.populateTransaction.addLiquidityETH(
-    contractAddress,
-    ethers.utils.parseUnits(config.liquidityAmount.toString(), 18),
-    0,
-    ethers.utils.parseEther(config.liquidityAmount.toString()),
-    contractDeployer.address,
-    Math.floor(Date.now() / 1000) + 60 * 10,
-    { value: ethers.utils.parseEther(config.liquidityAmount.toString()) }
-  );
+  // Build transactions for the bundle
+  const approveTx = {
+    ...await tokenContract.populateTransaction.approve(UNISWAP_V2_ROUTER02_ADDRESS, ethers.utils.parseUnits(config.liquidityAmount.toString(), 18)),
+    nonce: contractDeployerNonce++,
+    gasLimit: ethers.utils.hexlify(300000) // Adjust gas limit as needed
+  };
+
+  const addLiquidityTx = {
+    ...await uniswapRouter.populateTransaction.addLiquidityETH(
+      contractAddress,
+      ethers.utils.parseUnits(config.liquidityAmount.toString(), 18),
+      0,
+      ethers.utils.parseEther(config.liquidityAmount.toString()),
+      contractDeployer.address,
+      Math.floor(Date.now() / 1000) + 60 * 10,
+      { value: ethers.utils.parseEther(config.liquidityAmount.toString()) }
+    ),
+    nonce: contractDeployerNonce++,
+    gasLimit: ethers.utils.hexlify(300000) // Adjust gas limit as needed
+  };
 
   const fundAndBuyTransactions = [];
   for (let i = 0; i < sniperWallets.length; i++) {
     const fundTx = {
       to: sniperWallets[i].address,
-      value: ethers.utils.parseEther(config.desiredBuyAmounts[i].toString())
+      value: ethers.utils.parseEther(config.desiredBuyAmounts[i].toString()),
+      nonce: fundingWalletNonce++,
+      gasLimit: ethers.utils.hexlify(21000) // Standard gas limit for ETH transfer
     };
 
     const uniswapRouterSniper = new ethers.Contract(UNISWAP_V2_ROUTER02_ADDRESS, uniswapRouterAbi, sniperWallets[i]);
-    const buyTx = await uniswapRouterSniper.populateTransaction.swapExactETHForTokens(
-      0,
-      [WETH_ADDRESS, contractAddress],
-      sniperWallets[i].address,
-      Math.floor(Date.now() / 1000) + 60 * 10,
-      { value: ethers.utils.parseEther(config.desiredBuyAmounts[i].toString()) }
-    );
+    const buyTx = {
+      ...await uniswapRouterSniper.populateTransaction.swapExactETHForTokens(
+        0,
+        [WETH_ADDRESS, contractAddress],
+        sniperWallets[i].address,
+        Math.floor(Date.now() / 1000) + 60 * 10,
+        { value: ethers.utils.parseEther(config.desiredBuyAmounts[i].toString()) }
+      ),
+      nonce: sniperWalletsNonces[i]++,
+      gasLimit: ethers.utils.hexlify(300000) // Adjust gas limit as needed
+    };
 
     fundAndBuyTransactions.push({
       signer: fundingWallet,
@@ -111,6 +130,16 @@ async function main() {
     ...fundAndBuyTransactions
   ]);
 
+  // Simulate the bundle
+  const simulation = await flashbotsProvider.simulate(signedBundle, blockNumber + 1);
+  if ('error' in simulation) {
+    console.error(`Simulation error: ${simulation.error.message}`);
+    return;
+  } else {
+    console.log("Simulation successful", simulation);
+  }
+
+  // Send the bundle
   const bundleReceipt = await flashbotsProvider.sendRawBundle(signedBundle, blockNumber + 1);
   if ('error' in bundleReceipt) {
     console.error(`Flashbots bundle error: ${bundleReceipt.error.message}`);
