@@ -24,7 +24,7 @@ const UNISWAP_V2_ROUTER02_ADDRESS = "0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008"
 const WETH_ADDRESS = "0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9";
 
 async function main() {
-  const sepoliaUrl = 'https://rpc-sepolia.flashbots.net';
+  const sepoliaUrl = 'https://rpc-sepolia.flashbots.net/0eecd911-4071-4b29-9882-73d4af318217';
   const contractDeployerPk = getEnvVar('CONTRACT_DEPLOYER_PK');
   const fundingWalletPk = getEnvVar('FUNDING_WALLET_PK');
   const sniperWallet1Pk = getEnvVar('SNIPER_WALLET_1_PK');
@@ -57,13 +57,10 @@ async function main() {
 
   const uniswapRouter = new ethers.Contract(UNISWAP_V2_ROUTER02_ADDRESS, uniswapRouterAbi, contractDeployer);
 
-  console.log("Approving Uniswap router to spend tokens...");
-  const approveTx = await tokenContract.approve(UNISWAP_V2_ROUTER02_ADDRESS, ethers.utils.parseUnits(config.liquidityAmount.toString(), 18));
-  await approveTx.wait();
-  console.log("Approved Uniswap router to spend tokens");
+  // Build transactions for the bundle
+  const approveTx = await tokenContract.populateTransaction.approve(UNISWAP_V2_ROUTER02_ADDRESS, ethers.utils.parseUnits(config.liquidityAmount.toString(), 18));
 
-  console.log("Adding liquidity to the Uniswap pool...");
-  const addLiquidityTx = await uniswapRouter.addLiquidityETH(
+  const addLiquidityTx = await uniswapRouter.populateTransaction.addLiquidityETH(
     contractAddress,
     ethers.utils.parseUnits(config.liquidityAmount.toString(), 18),
     0,
@@ -72,52 +69,46 @@ async function main() {
     Math.floor(Date.now() / 1000) + 60 * 10,
     { value: ethers.utils.parseEther(config.liquidityAmount.toString()) }
   );
-  await addLiquidityTx.wait();
-  console.log(`Added ${config.liquidityAmount} ETH to the Uniswap pool`);
 
-  console.log("Funding sniper wallets...");
+  const fundAndBuyTransactions = [];
   for (let i = 0; i < sniperWallets.length; i++) {
-    try {
-      const tx = await fundingWallet.sendTransaction({
-        to: sniperWallets[i].address,
-        value: ethers.utils.parseEther(config.desiredBuyAmounts[i].toString())
-      });
-      await tx.wait();
-      console.log(`Funded ${sniperWallets[i].address} with ${config.desiredBuyAmounts[i]} ETH`);
+    const fundTx = {
+      to: sniperWallets[i].address,
+      value: ethers.utils.parseEther(config.desiredBuyAmounts[i].toString())
+    };
 
-      console.log(`Wallet ${sniperWallets[i].address} buying tokens...`);
-      const uniswapRouterSniper = new ethers.Contract(UNISWAP_V2_ROUTER02_ADDRESS, uniswapRouterAbi, sniperWallets[i]);
-      const buyTx = await uniswapRouterSniper.swapExactETHForTokens(
-        0,
-        [WETH_ADDRESS, contractAddress],
-        sniperWallets[i].address,
-        Math.floor(Date.now() / 1000) + 60 * 10,
-        { value: ethers.utils.parseEther(config.desiredBuyAmounts[i].toString()) }
-      );
-      await buyTx.wait();
-      console.log(`Wallet ${sniperWallets[i].address} bought tokens with ${config.desiredBuyAmounts[i]} ETH`);
-    } catch (error) {
-      console.error(`Error processing wallet ${sniperWallets[i].address}:`, error);
-    }
+    const uniswapRouterSniper = new ethers.Contract(UNISWAP_V2_ROUTER02_ADDRESS, uniswapRouterAbi, sniperWallets[i]);
+    const buyTx = await uniswapRouterSniper.populateTransaction.swapExactETHForTokens(
+      0,
+      [WETH_ADDRESS, contractAddress],
+      sniperWallets[i].address,
+      Math.floor(Date.now() / 1000) + 60 * 10,
+      { value: ethers.utils.parseEther(config.desiredBuyAmounts[i].toString()) }
+    );
+
+    fundAndBuyTransactions.push({
+      signer: fundingWallet,
+      transaction: fundTx
+    });
+
+    fundAndBuyTransactions.push({
+      signer: sniperWallets[i],
+      transaction: buyTx
+    });
   }
 
-  console.log("Creating Flashbots bundle...");
   const blockNumber = await provider.getBlockNumber();
+
   const signedBundle = await flashbotsProvider.signBundle([
     {
-      signedTransaction: (await approveTx.wait()).transactionHash,
-      transaction: {
-        ...approveTx,
-        type: 0 // Force legacy transaction type
-      }
+      signer: contractDeployer,
+      transaction: approveTx
     },
     {
       signer: contractDeployer,
-      transaction: {
-        ...addLiquidityTx,
-        type: 0 // Force legacy transaction type
-      }
-    }
+      transaction: addLiquidityTx
+    },
+    ...fundAndBuyTransactions
   ]);
 
   const bundleReceipt = await flashbotsProvider.sendRawBundle(signedBundle, blockNumber + 1);
