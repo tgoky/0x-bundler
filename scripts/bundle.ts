@@ -3,6 +3,7 @@ import { FlashbotsBundleProvider } from "@flashbots/ethers-provider-bundle";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
+import axios from 'axios';
 import uniswapRouterAbi from '../ABI/UniswapRouter.json';
 
 // Load environment variables
@@ -20,27 +21,40 @@ const getEnvVar = (varName: string, defaultValue?: string): string => {
 const configPath = path.join(__dirname, "..", "lib", "config.json");
 const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
-const UNISWAP_V2_ROUTER02_ADDRESS = "0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008";
-const WETH_ADDRESS = "0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9";
+const UNISWAP_V2_ROUTER02_ADDRESS = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+const WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+
+async function getGasPrices() {
+  const { data } = await axios.get(`https://api.etherscan.io/api?module=gastracker&action=gasoracle&apikey=YourApiKeyToken`);
+  const baseFee = ethers.utils.parseUnits(data.result.ProposeGasPrice, 'gwei'); // Base fee in gwei
+  const priorityFee = ethers.utils.parseUnits('2', 'gwei'); // Priority fee in gwei, you can adjust this
+
+  return {
+    maxFeePerGas: baseFee.add(priorityFee),
+    maxPriorityFeePerGas: priorityFee,
+  };
+}
 
 async function main() {
-  const sepoliaUrl = 'https://rpc-sepolia.flashbots.net/0eecd911-4071-4b29-9882-73d4af318217';
+  const mainnetUrl = 'https://mainnet.infura.io/v3/23a20fc28538440eb019569a29bb7339'; // Replace with your Infura project ID or other provider URL
   const contractDeployerPk = getEnvVar('CONTRACT_DEPLOYER_PK');
   const fundingWalletPk = getEnvVar('FUNDING_WALLET_PK');
   const sniperWallet1Pk = getEnvVar('SNIPER_WALLET_1_PK');
   const sniperWallet2Pk = getEnvVar('SNIPER_WALLET_2_PK');
-  const contractAddress = '0x51784B9a69BdB87eb5d079Ff5EC55D762a696619'; // Use provided contract address
+  const contractAddress = '0x51784B9a69BdB87eb5d079Ff5EC55D762a696619'; // Replace with your contract address
 
   // Test network connection
-  console.log(`Connecting to Sepolia network at ${sepoliaUrl}...`);
-  const provider = new ethers.providers.JsonRpcProvider(sepoliaUrl);
+  console.log(`Connecting to mainnet at ${mainnetUrl}...`);
+  const provider = new ethers.providers.JsonRpcProvider(mainnetUrl);
   try {
     const network = await provider.getNetwork();
     console.log(`Connected to network: ${network.name}`);
   } catch (error) {
-    console.error("Failed to connect to the Sepolia network:", error);
+    console.error("Failed to connect to the mainnet:", error);
     return;
   }
+
+  const { maxFeePerGas, maxPriorityFeePerGas } = await getGasPrices();
 
   const flashbotsProvider = await FlashbotsBundleProvider.create(provider, new ethers.Wallet(contractDeployerPk));
   const fundingWallet = new ethers.Wallet(fundingWalletPk, provider);
@@ -66,7 +80,9 @@ async function main() {
   const approveTx = {
     ...await tokenContract.populateTransaction.approve(UNISWAP_V2_ROUTER02_ADDRESS, ethers.utils.parseUnits(config.liquidityAmount.toString(), 18)),
     nonce: contractDeployerNonce++,
-    gasLimit: ethers.utils.hexlify(300000) // Adjust gas limit as needed
+    gasLimit: ethers.utils.hexlify(300000), // Adjust gas limit as needed
+    maxFeePerGas: maxFeePerGas.toString(),
+    maxPriorityFeePerGas: maxPriorityFeePerGas.toString()
   };
 
   const addLiquidityTx = {
@@ -80,7 +96,9 @@ async function main() {
       { value: ethers.utils.parseEther(config.liquidityAmount.toString()) }
     ),
     nonce: contractDeployerNonce++,
-    gasLimit: ethers.utils.hexlify(300000) // Adjust gas limit as needed
+    gasLimit: ethers.utils.hexlify(300000), // Adjust gas limit as needed
+    maxFeePerGas: maxFeePerGas.toString(),
+    maxPriorityFeePerGas: maxPriorityFeePerGas.toString()
   };
 
   const fundAndBuyTransactions = [];
@@ -89,7 +107,9 @@ async function main() {
       to: sniperWallets[i].address,
       value: ethers.utils.parseEther(config.desiredBuyAmounts[i].toString()),
       nonce: fundingWalletNonce++,
-      gasLimit: ethers.utils.hexlify(21000) // Standard gas limit for ETH transfer
+      gasLimit: ethers.utils.hexlify(21000), // Standard gas limit for ETH transfer
+      maxFeePerGas: maxFeePerGas.toString(),
+      maxPriorityFeePerGas: maxPriorityFeePerGas.toString()
     };
 
     const uniswapRouterSniper = new ethers.Contract(UNISWAP_V2_ROUTER02_ADDRESS, uniswapRouterAbi, sniperWallets[i]);
@@ -102,7 +122,9 @@ async function main() {
         { value: ethers.utils.parseEther(config.desiredBuyAmounts[i].toString()) }
       ),
       nonce: sniperWalletsNonces[i]++,
-      gasLimit: ethers.utils.hexlify(300000) // Adjust gas limit as needed
+      gasLimit: ethers.utils.hexlify(300000), // Adjust gas limit as needed
+      maxFeePerGas: maxFeePerGas.toString(),
+      maxPriorityFeePerGas: maxPriorityFeePerGas.toString()
     };
 
     fundAndBuyTransactions.push({
