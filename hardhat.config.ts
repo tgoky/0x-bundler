@@ -8,7 +8,7 @@ const config: HardhatUserConfig = {
   solidity: "0.8.0",
   networks: {
     mainnet: {
-      url: 'https://rpc.flashbots.net/fast',
+      url: 'https://rpc-sepolia.flashbots.net/',
       accounts: [process.env.PRIVATE_KEY!],
       chainId: 1,
     },
