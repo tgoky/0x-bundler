@@ -265,6 +265,7 @@ class FlashBot {
             const resolution = await bundleResponse.wait();
             if (resolution === FlashbotsBundleResolution.BundleIncluded) {
               console.log(`Bundle included in block ${blockNumber + this.intervalToFutureBlock}`);
+              this.exit(); 
             } else if (resolution === FlashbotsBundleResolution.BlockPassedWithoutInclusion) {
               console.log(`Block ${blockNumber + this.intervalToFutureBlock} passed without bundle inclusion`);
             }
