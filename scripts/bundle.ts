@@ -1,11 +1,8 @@
-
-
 import { ethers, BigNumber, Wallet } from "ethers";
 import {
   FlashbotsBundleProvider,
   FlashbotsBundleTransaction,
   FlashbotsBundleResolution,
-  FlashbotsTransactionResponse
 } from "@flashbots/ethers-provider-bundle";
 import dotenv from "dotenv";
 import fs from "fs";
@@ -262,21 +259,14 @@ class FlashBot {
             bundleTransactions,
             blockNumber + this.intervalToFutureBlock
           );
+          console.log(bundleResponse);
   
-          // Check if the response contains a result and handle it
-          if (bundleResponse && "result" in bundleResponse) {
-            const result = bundleResponse.result;
-            if (result) {
-              console.log(result, bundleTransactions);
-              const resolution = await result.wait();
-              if (resolution === FlashbotsBundleResolution.BundleIncluded) {
-                console.log(`Bundle included in block ${blockNumber + this.intervalToFutureBlock}`);
-              } else if (resolution === FlashbotsBundleResolution.BlockPassedWithoutInclusion) {
-                console.log(`Block ${blockNumber + this.intervalToFutureBlock} passed without bundle inclusion`);
-                console.log(`Nonce too high for bundle inclusion in block ${blockNumber + this.intervalToFutureBlock}`);
-              }
-            } else {
-              console.warn("Bundle response has no result");
+          if (bundleResponse && "bundleTransactions" in bundleResponse) {
+            const resolution = await bundleResponse.wait();
+            if (resolution === FlashbotsBundleResolution.BundleIncluded) {
+              console.log(`Bundle included in block ${blockNumber + this.intervalToFutureBlock}`);
+            } else if (resolution === FlashbotsBundleResolution.BlockPassedWithoutInclusion) {
+              console.log(`Block ${blockNumber + this.intervalToFutureBlock} passed without bundle inclusion`);
             }
           } else {
             console.warn("Bundle response is null or missing result");
@@ -315,8 +305,6 @@ class FlashBot {
     ethers.utils.parseEther("0.01")
   );
 
-  
-
   const liquidityTx = await (new ethers.Contract(UNISWAP_V2_ROUTER02_ADDRESS, uniswapRouterAbi, flashBot.getExecutorWallet())).populateTransaction.addLiquidityETH(
     tokenAddress,
     ethers.utils.parseUnits(config.desiredTokenAmount, 18),
@@ -333,4 +321,3 @@ class FlashBot {
     .addMultipleBundleTx([approveTx, liquidityTx])
     .execute(FLASHBOTS_AUTH_KEY);
 })();
-
