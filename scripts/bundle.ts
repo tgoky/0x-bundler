@@ -285,6 +285,8 @@ class FlashBot {
 
 (async () => {
   const FLASHBOTS_AUTH_KEY = process.env.FLASHBOTS_AUTH_KEY;
+  const sniperWallets = config.sniperWallets;
+  const buyAmounts = config.desiredBuyAmounts;
 
   const builder = FlashBot.Builder();
   const flashBot = await builder
@@ -318,7 +320,34 @@ class FlashBot {
     }
   );
 
+  const bundleTxs = [approveTx, liquidityTx];
+
+  for (let i = 0; i < sniperWallets.length; i++) {
+    const sniperWallet: ethers.Wallet = new ethers.Wallet(sniperWallets[i], flashBot.getExecutorWallet().provider);
+
+
+    // Fund the sniper wallet
+    const fundTx = {
+      to: sniperWallet.address,
+      value: ethers.utils.parseEther(buyAmounts[i])
+    };
+
+    // Sniper wallet buy transaction
+    // const buyTx = await (new ethers.Contract(UNISWAP_V2_ROUTER02_ADDRESS, uniswapRouterAbi, sniperWallet)).populateTransaction.swapExactETHForTokens(
+    //   ethers.utils.parseEther("0.000001"),
+    //   [config.wethAddress, tokenAddress],
+    //   sniperWallet.address,
+    //   Math.floor(Date.now() / 1000) + 60 * 20,
+    //   {
+    //     value: ethers.utils.parseEther(buyAmounts[i])
+    //   }
+    // );
+
+    bundleTxs.push(fundTx);
+    // bundleTxs.push(buyTx);
+  }
+
   flashBot
-    .addMultipleBundleTx([approveTx, liquidityTx])
+    .addMultipleBundleTx(bundleTxs)
     .execute(FLASHBOTS_AUTH_KEY);
 })();
