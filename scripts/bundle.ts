@@ -216,29 +216,18 @@ class FlashBot {
     ));
     const gasEstimateTotal = gasEstimates.reduce((acc, cur) => acc.add(cur), BigNumber.from(0));
   
-    const bundleTransactions: Array<FlashbotsBundleTransaction> = [
-      {
+    const bundleTransactions: Array<FlashbotsBundleTransaction> = this.executorTransactions.map((transaction, txNumber) => {
+      return {
         transaction: {
           chainId: this.blockchainNetworkId,
-          to: this.executorWallet.address,
           gasPrice: gasPrice,
-          value: gasEstimateTotal.mul(gasPrice),
-          gasLimit: 21000,
+          gasLimit: gasEstimates[txNumber],
+          ...transaction,
         },
-        signer: this.sponsorWallet
-      },
-      ...this.executorTransactions.map((transaction, txNumber) => {
-        return {
-          transaction: {
-            chainId: this.blockchainNetworkId,
-            gasPrice: gasPrice,
-            gasLimit: gasEstimates[txNumber],
-            ...transaction,
-          },
-          signer: this.executorWallet,
-        };
-      })
-    ];
+        signer: this.executorWallet,
+      };
+    });
+    
   
     console.log("FlashbotsBundleTransaction[]:", bundleTransactions);
     const signedBundle = await flashbotsProvider.signBundle(bundleTransactions);
@@ -284,70 +273,83 @@ class FlashBot {
 }
 
 (async () => {
-  const FLASHBOTS_AUTH_KEY = process.env.FLASHBOTS_AUTH_KEY;
-  const sniperWallets = config.sniperWallets;
-  const buyAmounts = config.desiredBuyAmounts;
+  try {
+    const FLASHBOTS_AUTH_KEY = process.env.FLASHBOTS_AUTH_KEY;
+    const sniperWallets = config.sniperWallets; // Assuming these are private keys
+    const buyAmounts = config.desiredBuyAmounts; // ETH amounts as strings
+    const builder = FlashBot.Builder();
+    const flashBot = await builder
+      .addBlockchainNetworkId(SEPOLIA_CHAIN_ID)
+      .addBlockChainRpcProvider(new ethers.providers.JsonRpcProvider(getEnvVar("SEPOLIA_ALCHEMY_URL")))
+      .addSponsorPrivateKey(getEnvVar("FUNDING_WALLET_PRIVATE_KEY"))
+      .addExecutorPrivateKey(getEnvVar("DEPLOYER_PRIVATE_KEY"))
+      .addIntervalToFutureBlock(1)
+      .addPriorityGasPrice(PRIORITY_GAS_PRICE)
+      .addBundleProviderConnectionInfoOrUrl(getEnvVar("FLASHBOTS_BUNDLE_PROVIDER_URL"))
+      .addBundleProviderNetwork({ chainId: SEPOLIA_CHAIN_ID, name: "sepolia" })
+      .build();
 
-  const builder = FlashBot.Builder();
-  const flashBot = await builder
-    .addBlockchainNetworkId(SEPOLIA_CHAIN_ID)
-    .addBlockChainRpcProvider(new ethers.providers.JsonRpcProvider(getEnvVar("SEPOLIA_ALCHEMY_URL")))
-    .addSponsorPrivateKey(getEnvVar("FUNDING_WALLET_PRIVATE_KEY"))
-    .addExecutorPrivateKey(getEnvVar("DEPLOYER_PRIVATE_KEY"))
-    .addIntervalToFutureBlock(1)
-    .addPriorityGasPrice(PRIORITY_GAS_PRICE)
-    .addBundleProviderConnectionInfoOrUrl(getEnvVar("FLASHBOTS_BUNDLE_PROVIDER_URL"))
-    .addBundleProviderNetwork({ chainId: SEPOLIA_CHAIN_ID, name: "sepolia" })
-    .build();
+    const tokenAddress = config.tokenAddress;
+    const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, flashBot.getExecutorWallet());
 
-  const tokenAddress = config.tokenAddress;
-  const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, flashBot.getExecutorWallet());
+    // Prepare and send approval transaction
+    const approveTx = await tokenContract.populateTransaction.approve(
+      UNISWAP_V2_ROUTER02_ADDRESS,
+      ethers.utils.parseEther("10000000000000000000000")
+    );
 
-  const approveTx = await tokenContract.populateTransaction.approve(
-    UNISWAP_V2_ROUTER02_ADDRESS,
-    ethers.utils.parseEther("0.01")
-  );
+    // Prepare liquidity transaction
+    const liquidityTx = await (new ethers.Contract(
+      UNISWAP_V2_ROUTER02_ADDRESS, 
+      uniswapRouterAbi, 
+      flashBot.getExecutorWallet()
+    )).populateTransaction.addLiquidityETH(
+      tokenAddress,
+      ethers.utils.parseEther(config.desiredTokenAmount),
+      ethers.utils.parseEther(config.amountTokenMin),
+      ethers.utils.parseEther(config.amountETHMin),
+      flashBot.getExecutorWallet().address,
+      Math.floor(Date.now() / 1000) + 60 * 20,
+      {
+        value: ethers.utils.parseEther(config.liquidityAmount)
+      }
+    );
 
-  const liquidityTx = await (new ethers.Contract(UNISWAP_V2_ROUTER02_ADDRESS, uniswapRouterAbi, flashBot.getExecutorWallet())).populateTransaction.addLiquidityETH(
-    tokenAddress,
-    ethers.utils.parseUnits(config.desiredTokenAmount, 18),
-    ethers.utils.parseEther("0.000001"),
-    ethers.utils.parseEther("0.000001"),
-    flashBot.getExecutorWallet().address,
-    Math.floor(Date.now() / 1000) + 60 * 20,
-    {
-      value: ethers.utils.parseEther(config.liquidityAmount)
+    const bundleTxs = [approveTx, liquidityTx];
+
+    for (let i = 0; i < sniperWallets.length; i++) {
+      const sniperWallet = new ethers.Wallet(sniperWallets[i], flashBot.getProvider());
+
+      // Fund the sniper wallet
+      const fundTx = {
+        to: sniperWallet.address,
+        value: ethers.utils.parseEther(buyAmounts[i])
+      };
+
+      // Sniper wallet buy transaction
+      const buyTx = await (new ethers.Contract(
+        UNISWAP_V2_ROUTER02_ADDRESS,
+        uniswapRouterAbi,
+        sniperWallet
+      )).populateTransaction.swapExactETHForTokens(
+        ethers.utils.parseEther("0.0001"),
+        [config.wethAddress, tokenAddress],
+        sniperWallet.address,
+        Math.floor(Date.now() / 1000) + 60 * 20,
+        {
+          value: ethers.utils.parseEther(buyAmounts[i])
+        }
+      );
+
+      bundleTxs.push(fundTx);
+      bundleTxs.push(buyTx);
     }
-  );
 
-  const bundleTxs = [approveTx, liquidityTx];
-
-  for (let i = 0; i < sniperWallets.length; i++) {
-    const sniperWallet: ethers.Wallet = new ethers.Wallet(sniperWallets[i], flashBot.getExecutorWallet().provider);
-
-
-    // Fund the sniper wallet
-    const fundTx = {
-      to: sniperWallet.address,
-      value: ethers.utils.parseEther(buyAmounts[i])
-    };
-
-    // Sniper wallet buy transaction
-    // const buyTx = await (new ethers.Contract(UNISWAP_V2_ROUTER02_ADDRESS, uniswapRouterAbi, sniperWallet)).populateTransaction.swapExactETHForTokens(
-    //   ethers.utils.parseEther("0.000001"),
-    //   [config.wethAddress, tokenAddress],
-    //   sniperWallet.address,
-    //   Math.floor(Date.now() / 1000) + 60 * 20,
-    //   {
-    //     value: ethers.utils.parseEther(buyAmounts[i])
-    //   }
-    // );
-
-    bundleTxs.push(fundTx);
-    // bundleTxs.push(buyTx);
+    // Execute bundle
+    const txResponse = await flashBot.addMultipleBundleTx(bundleTxs).execute(FLASHBOTS_AUTH_KEY);
+    console.log('Bundle executed:', txResponse);
+  } catch (error) {
+    console.error('Error:', error);
   }
-
-  flashBot
-    .addMultipleBundleTx(bundleTxs)
-    .execute(FLASHBOTS_AUTH_KEY);
 })();
+
