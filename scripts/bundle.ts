@@ -1,3 +1,5 @@
+
+
 import { ethers, BigNumber, Wallet } from "ethers";
 import {
   FlashbotsBundleProvider,
@@ -275,8 +277,8 @@ class FlashBot {
 (async () => {
   try {
     const FLASHBOTS_AUTH_KEY = process.env.FLASHBOTS_AUTH_KEY;
-    const sniperWallets = config.sniperWallets; // Assuming these are private keys
-    const buyAmounts = config.desiredBuyAmounts; // ETH amounts as strings
+    const sniperWallets = config.sniperWallets;
+    const buyAmounts = config.desiredBuyAmounts;
     const builder = FlashBot.Builder();
     const flashBot = await builder
       .addBlockchainNetworkId(SEPOLIA_CHAIN_ID)
@@ -290,18 +292,18 @@ class FlashBot {
       .build();
 
     const tokenAddress = config.tokenAddress;
-    const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, flashBot.getExecutorWallet());
 
-    // Prepare and send approval transaction
+    // Prepare the approval transaction
+    const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, flashBot.getExecutorWallet());
     const approveTx = await tokenContract.populateTransaction.approve(
       UNISWAP_V2_ROUTER02_ADDRESS,
-      ethers.utils.parseEther("10000000000000000000000")
+      ethers.utils.parseEther("100000000") // Replace with desired approval amount
     );
 
-    // Prepare liquidity transaction
+    // Prepare the liquidity transaction
     const liquidityTx = await (new ethers.Contract(
-      UNISWAP_V2_ROUTER02_ADDRESS, 
-      uniswapRouterAbi, 
+      UNISWAP_V2_ROUTER02_ADDRESS,
+      uniswapRouterAbi,
       flashBot.getExecutorWallet()
     )).populateTransaction.addLiquidityETH(
       tokenAddress,
@@ -315,24 +317,28 @@ class FlashBot {
       }
     );
 
-    const bundleTxs = [approveTx, liquidityTx];
+    // Execute the initial bundle with approval and liquidity transactions
+    const initialBundleTxs = [approveTx, liquidityTx];
+    const initialBundleResponse = await flashBot.addMultipleBundleTx(initialBundleTxs).execute(FLASHBOTS_AUTH_KEY);
+    console.log('Initial bundle executed:', initialBundleResponse);
 
+    // Fund sniper wallets
+    const fundTxs = sniperWallets.map((privateKey: string, index: string) => ({
+      to: new ethers.Wallet(privateKey).address,
+      value: ethers.utils.parseEther(buyAmounts[index])
+    }));
+    const fundBundleResponse = await flashBot.addMultipleBundleTx(fundTxs).execute(FLASHBOTS_AUTH_KEY);
+    console.log('Funding bundle executed:', fundBundleResponse);
+
+    // Execute buy transactions for each sniper wallet
     for (let i = 0; i < sniperWallets.length; i++) {
       const sniperWallet = new ethers.Wallet(sniperWallets[i], flashBot.getProvider());
-
-      // Fund the sniper wallet
-      const fundTx = {
-        to: sniperWallet.address,
-        value: ethers.utils.parseEther(buyAmounts[i])
-      };
-
-      // Sniper wallet buy transaction
       const buyTx = await (new ethers.Contract(
         UNISWAP_V2_ROUTER02_ADDRESS,
         uniswapRouterAbi,
         sniperWallet
       )).populateTransaction.swapExactETHForTokens(
-        ethers.utils.parseEther("0.0001"),
+        ethers.utils.parseEther("0.0005"),
         [config.wethAddress, tokenAddress],
         sniperWallet.address,
         Math.floor(Date.now() / 1000) + 60 * 20,
@@ -341,13 +347,14 @@ class FlashBot {
         }
       );
 
-      bundleTxs.push(fundTx);
-      bundleTxs.push(buyTx);
-    }
+      const sniperFlashBot = await builder
+        .addExecutorPrivateKey(sniperWallet.privateKey)
+        .build();
 
-    // Execute bundle
-    const txResponse = await flashBot.addMultipleBundleTx(bundleTxs).execute(FLASHBOTS_AUTH_KEY);
-    console.log('Bundle executed:', txResponse);
+      const sniperBundleTxs = [buyTx];
+      const sniperBundleResponse = await sniperFlashBot.addMultipleBundleTx(sniperBundleTxs).execute(FLASHBOTS_AUTH_KEY);
+      console.log(`Sniper wallet ${i + 1} bundle executed:`, sniperBundleResponse);
+    }
   } catch (error) {
     console.error('Error:', error);
   }

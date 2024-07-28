@@ -7,10 +7,10 @@ import "@nomicfoundation/hardhat-toolbox";
 const config: HardhatUserConfig = {
   solidity: "0.8.0",
   networks: {
-    mainnet: {
-      url: 'https://rpc-sepolia.flashbots.net/',
+    testnet: {
+      url: 'https://sepolia.infura.io/v3/23a20fc28538440eb019569a29bb7339',
       accounts: [process.env.PRIVATE_KEY!],
-      chainId: 1,
+      chainId: 11155111,
     },
   },
   typechain: {
