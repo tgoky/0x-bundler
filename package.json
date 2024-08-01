@@ -8,7 +8,8 @@
     "@uniswap/sdk": "^3.0.3",
     "ethereum-waffle": "^3.4.4",
     "ethers": "^5.7.2",
-    "hardhat": "^2.22.6"
+    "hardhat": "^2.22.6",
+    "ts-node": "^10.9.2"
   },
   "dependencies": {
     "@flashbots/ethers-provider-bundle": "^0.4.4",
