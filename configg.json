@@ -10,29 +10,17 @@
     "amountTokenMin" : "1000",
     "amountETHMin": "0.0004" ,
     "minEthAmount": "0.003928195937370891",
-    "recipient" : "0x2a82A2341c7F14af8f5D7B89C931d1B43A84d0D6",
     "ethAmount" : "0.003928195937370891",
-    "fundingAmount" : "0.005",
     "sniperWallets" : [
-        "",
-     ""
-   
-     
+        "0x1",
+         "0x2",
+         "0x3",
+         "0x4",
+         "0x5"
+
     ],
-    "wethAddress" : "0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9",
-    "fixedBuyAmount" : "0.0003",
-    "WETH" : "0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9",
-      "sniperWallet" : [
-     "",
-     ""
-    ],
-    "sniperBuyAmount" : "0.003",
-    "TOKEN_ADDRESS" : "",
-    "contractAddress" : "0x008CDc4D855e47725D29f20Fb819eB54957464C6",
-    "sniperPrivateKeys" : [
-       "",
-      ""
-    ]
+    "wethAddress" : "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+
   }
   
   

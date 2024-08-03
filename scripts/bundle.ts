@@ -9,12 +9,12 @@ import {
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
-import uniswapRouterAbi from '../ABI/UniswapRouter.json';
-// import uniswapRouterAbi from '../ABI/MAINNET/UniswapRouter.json';  // MAINNET ABI
+// import uniswapRouterAbi from '../ABI/UniswapRouter.json'; //TESTNET
+import erc20Abi from '../ABI/ERC20.json'; // TESTNET
+import uniswapRouterAbi from '../ABI/MAINNET/UniswapRouter.json';  // MAINNET ABI
+
 
 // import erc20Abi from '../ABI/MAINNET/ERC20.json'; // MAINNET 
-import erc20Abi from '../ABI/ERC20.json'; // TESTNET
-
 dotenv.config();
 
 const getEnvVar = (varName: string, defaultValue?: string): string => {
@@ -28,10 +28,10 @@ const getEnvVar = (varName: string, defaultValue?: string): string => {
 const configPath = path.join(__dirname, "..", "lib", "config.json");
 const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
-const UNISWAP_V2_ROUTER02_ADDRESS = "0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008"; // TESTNET
-// const UNISWAP_V2_ROUTER02_ABI = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D" // MAINNET
-const SEPOLIA_CHAIN_ID = 11155111;
-
+// const UNISWAP_V2_ROUTER02_ADDRESS = "0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008";
+const UNISWAP_V2_ROUTER02_ADDRESS = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D" // MAINNET
+// const SEPOLIA_CHAIN_ID = 11155111; TESTNET
+const SEPOLIA_CHAIN_ID = 1; // MAINNET 
 const BLOCKS_IN_FUTURE = 2;
 const GWEI = BigNumber.from(10).pow(9);
 const PRIORITY_GAS_PRICE = GWEI.mul(31);
@@ -214,29 +214,21 @@ class FlashBot {
     );
   
     const block = await this.getProvider().getBlock("latest");
-    // const gasPrice = this.priorityGasPrice.add(block.baseFeePerGas || 0);
-    // const gasEstimates = await Promise.all(this.executorTransactions.map(tx =>
-    //   this.getProvider().estimateGas({
-    //     ...tx,
-    //     from: tx.from === undefined ? this.executorWallet.address : tx.from
-    //   })
-    // ));
+    const gasPrice = this.priorityGasPrice.add(block.baseFeePerGas || 0);
+    const gasEstimates = await Promise.all(this.executorTransactions.map(tx =>
+      this.getProvider().estimateGas({
+        ...tx,
+        from: tx.from === undefined ? this.executorWallet.address : tx.from
+      })
+    ));
     // const gasEstimateTotal = gasEstimates.reduce((acc, cur) => acc.add(cur), BigNumber.from(0));
   
-    // const gasEstimates = 1000000; // Set directly as a number // Example gas limit, adjust as needed
-    // const gasPrice = ethers.utils.parseUnits('10', 'gwei');
-
-
-    const gasEstimates = 30000; // Example gas limit, adjust as needed
-    const gasPrice = ethers.utils.parseUnits('30', 'gwei');
-
-
     const bundleTransactions: Array<FlashbotsBundleTransaction> = this.executorTransactions.map((transaction, txNumber) => {
       return {
         transaction: {
           chainId: this.blockchainNetworkId,
           gasPrice: gasPrice,
-          gasLimit: gasEstimates,
+          gasLimit: gasEstimates[txNumber],
           ...transaction,
         },
         signer: this.executorWallet,
@@ -292,8 +284,6 @@ class FlashBot {
     const FLASHBOTS_AUTH_KEY = process.env.FLASHBOTS_AUTH_KEY;
     const sniperWallets = config.sniperWallets;
     const buyAmounts = config.desiredBuyAmounts;
-    const gasEstimates = 50000; // Example gas limit, adjust as needed
-    const gasPrice = ethers.utils.parseUnits('30', 'gwei');
     const builder = FlashBot.Builder();
     const flashBot = await builder
       .addBlockchainNetworkId(SEPOLIA_CHAIN_ID)
@@ -312,7 +302,7 @@ class FlashBot {
     const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, flashBot.getExecutorWallet());
     const approveTx = await tokenContract.populateTransaction.approve(
       UNISWAP_V2_ROUTER02_ADDRESS,
-      ethers.utils.parseEther("300000000") // Replace with desired approval amount
+      ethers.utils.parseEther("100000000") // Replace with desired approval amount
     );
 
     // Prepare the liquidity transaction
@@ -328,9 +318,7 @@ class FlashBot {
       flashBot.getExecutorWallet().address,
       Math.floor(Date.now() / 1000) + 60 * 20,
       {
-        value: ethers.utils.parseEther(config.liquidityAmount),
-        gasLimit: gasEstimates,
-        gasPrice: gasPrice
+        value: ethers.utils.parseEther(config.liquidityAmount)
       }
     );
 
@@ -342,9 +330,7 @@ class FlashBot {
     // Fund sniper wallets
     const fundTxs = sniperWallets.map((privateKey: string, index: string) => ({
       to: new ethers.Wallet(privateKey).address,
-      value: ethers.utils.parseEther(buyAmounts[index]),
-      gasLimit: gasEstimates,
-      gasPrice: gasPrice
+      value: ethers.utils.parseEther(buyAmounts[index])
     }));
     const fundBundleResponse = await flashBot.addMultipleBundleTx(fundTxs).execute(FLASHBOTS_AUTH_KEY);
     console.log('Funding bundle executed:', fundBundleResponse);
@@ -362,9 +348,7 @@ class FlashBot {
         sniperWallet.address,
         Math.floor(Date.now() / 1000) + 60 * 20,
         {
-          value: ethers.utils.parseEther(buyAmounts[i]),
-          gasLimit: gasEstimates,
-          gasPrice: gasPrice
+          value: ethers.utils.parseEther(buyAmounts[i])
         }
       );
 
@@ -380,4 +364,3 @@ class FlashBot {
     console.error('Error:', error);
   }
 })();
-
