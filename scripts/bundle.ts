@@ -10,7 +10,10 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 import uniswapRouterAbi from '../ABI/UniswapRouter.json';
-import erc20Abi from '../ABI/ERC20.json'; // Assuming you have a standard ERC-20 ABI file
+// import uniswapRouterAbi from '../ABI/MAINNET/UniswapRouter.json';  // MAINNET ABI
+
+// import erc20Abi from '../ABI/MAINNET/ERC20.json'; // MAINNET 
+import erc20Abi from '../ABI/ERC20.json'; // TESTNET
 
 dotenv.config();
 
@@ -25,8 +28,10 @@ const getEnvVar = (varName: string, defaultValue?: string): string => {
 const configPath = path.join(__dirname, "..", "lib", "config.json");
 const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
-const UNISWAP_V2_ROUTER02_ADDRESS = "0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008";
+const UNISWAP_V2_ROUTER02_ADDRESS = "0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008"; // TESTNET
+// const UNISWAP_V2_ROUTER02_ABI = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D" // MAINNET
 const SEPOLIA_CHAIN_ID = 11155111;
+
 const BLOCKS_IN_FUTURE = 2;
 const GWEI = BigNumber.from(10).pow(9);
 const PRIORITY_GAS_PRICE = GWEI.mul(31);
@@ -221,12 +226,17 @@ class FlashBot {
     // const gasEstimates = 1000000; // Set directly as a number // Example gas limit, adjust as needed
     // const gasPrice = ethers.utils.parseUnits('10', 'gwei');
 
+
+    const gasEstimates = 30000; // Example gas limit, adjust as needed
+    const gasPrice = ethers.utils.parseUnits('30', 'gwei');
+
+
     const bundleTransactions: Array<FlashbotsBundleTransaction> = this.executorTransactions.map((transaction, txNumber) => {
       return {
         transaction: {
           chainId: this.blockchainNetworkId,
-          // gasPrice: gasPrice,
-          // gasLimit: gasEstimates,
+          gasPrice: gasPrice,
+          gasLimit: gasEstimates,
           ...transaction,
         },
         signer: this.executorWallet,
@@ -282,7 +292,7 @@ class FlashBot {
     const FLASHBOTS_AUTH_KEY = process.env.FLASHBOTS_AUTH_KEY;
     const sniperWallets = config.sniperWallets;
     const buyAmounts = config.desiredBuyAmounts;
-    const gasEstimates = 3000000; // Example gas limit, adjust as needed
+    const gasEstimates = 50000; // Example gas limit, adjust as needed
     const gasPrice = ethers.utils.parseUnits('30', 'gwei');
     const builder = FlashBot.Builder();
     const flashBot = await builder
@@ -370,3 +380,4 @@ class FlashBot {
     console.error('Error:', error);
   }
 })();
+
