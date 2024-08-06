@@ -9,9 +9,9 @@ import {
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
-// import uniswapRouterAbi from '../ABI/UniswapRouter.json'; //TESTNET
+import uniswapRouterAbi from '../ABI/UniswapRouter.json'; //TESTNET
 import erc20Abi from '../ABI/ERC20.json'; // TESTNET
-import uniswapRouterAbi from '../ABI/MAINNET/UniswapRouter.json';  // MAINNET ABI
+// import uniswapRouterAbi from '../ABI/MAINNET/UniswapRouter.json';  // MAINNET ABI
 
 
 // import erc20Abi from '../ABI/MAINNET/ERC20.json'; // MAINNET 
@@ -28,10 +28,10 @@ const getEnvVar = (varName: string, defaultValue?: string): string => {
 const configPath = path.join(__dirname, "..", "lib", "config.json");
 const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
-// const UNISWAP_V2_ROUTER02_ADDRESS = "0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008";
-const UNISWAP_V2_ROUTER02_ADDRESS = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D" // MAINNET
-// const SEPOLIA_CHAIN_ID = 11155111; TESTNET
-const SEPOLIA_CHAIN_ID = 1; // MAINNET 
+const UNISWAP_V2_ROUTER02_ADDRESS = "0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008";
+// const UNISWAP_V2_ROUTER02_ADDRESS = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D" // MAINNET
+const SEPOLIA_CHAIN_ID = 11155111; 
+// const SEPOLIA_CHAIN_ID = 1; // MAINNET 
 const BLOCKS_IN_FUTURE = 2;
 const GWEI = BigNumber.from(10).pow(9);
 const PRIORITY_GAS_PRICE = GWEI.mul(31);
@@ -338,25 +338,40 @@ class FlashBot {
     // Execute buy transactions for each sniper wallet
     for (let i = 0; i < sniperWallets.length; i++) {
       const sniperWallet = new ethers.Wallet(sniperWallets[i], flashBot.getProvider());
+      const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, sniperWallet);
+      const approveTx = await tokenContract.populateTransaction.approve(
+        UNISWAP_V2_ROUTER02_ADDRESS,
+        ethers.utils.parseEther("100000000") // Replace with desired approval amount
+      );
+
+      const nonce = await flashBot.getProvider().getTransactionCount(sniperWallet.address);
       const buyTx = await (new ethers.Contract(
         UNISWAP_V2_ROUTER02_ADDRESS,
         uniswapRouterAbi,
         sniperWallet
       )).populateTransaction.swapExactETHForTokens(
-        ethers.utils.parseEther("0.0005"),
+        ethers.utils.parseEther("0.00003"),
         [config.wethAddress, tokenAddress],
         sniperWallet.address,
         Math.floor(Date.now() / 1000) + 60 * 20,
         {
-          value: ethers.utils.parseEther(buyAmounts[i])
+          value: ethers.utils.parseEther(buyAmounts[i]),
+          nonce: nonce
         }
       );
 
-      const sniperFlashBot = await builder
+      const sniperFlashBot = await FlashBot.Builder()
+        .addBlockchainNetworkId(SEPOLIA_CHAIN_ID)
+        .addBlockChainRpcProvider(new ethers.providers.JsonRpcProvider(getEnvVar("SEPOLIA_ALCHEMY_URL")))
+        .addSponsorPrivateKey(getEnvVar("FUNDING_WALLET_PRIVATE_KEY"))
         .addExecutorPrivateKey(sniperWallet.privateKey)
+        .addIntervalToFutureBlock(1)
+        .addPriorityGasPrice(PRIORITY_GAS_PRICE)
+        .addBundleProviderConnectionInfoOrUrl(getEnvVar("FLASHBOTS_BUNDLE_PROVIDER_URL"))
+        .addBundleProviderNetwork({ chainId: SEPOLIA_CHAIN_ID, name: "sepolia" })
         .build();
 
-      const sniperBundleTxs = [buyTx];
+      const sniperBundleTxs = [approveTx, buyTx];
       const sniperBundleResponse = await sniperFlashBot.addMultipleBundleTx(sniperBundleTxs).execute(FLASHBOTS_AUTH_KEY);
       console.log(`Sniper wallet ${i + 1} bundle executed:`, sniperBundleResponse);
     }
