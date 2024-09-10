@@ -302,7 +302,7 @@ class FlashBot {
     const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, flashBot.getExecutorWallet());
     const approveTx = await tokenContract.populateTransaction.approve(
       UNISWAP_V2_ROUTER02_ADDRESS,
-      ethers.utils.parseEther("100000000") // Replace with desired approval amount
+      ethers.utils.parseEther("10000000") // Replace with desired approval amount
     );
 
     // Prepare the liquidity transaction
@@ -341,7 +341,7 @@ class FlashBot {
       const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, sniperWallet);
       const approveTx = await tokenContract.populateTransaction.approve(
         UNISWAP_V2_ROUTER02_ADDRESS,
-        ethers.utils.parseEther("100000000") // Replace with desired approval amount
+        ethers.utils.parseEther("1000000") // Replace with desired approval amount
       );
 
       const nonce = await flashBot.getProvider().getTransactionCount(sniperWallet.address);
