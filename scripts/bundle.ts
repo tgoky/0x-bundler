@@ -213,7 +213,7 @@ class FlashBot {
       this.bundleProviderNetwork
     );
   
-    const block = await this.getProvider().getBlock("latest");
+    const block = await this.getProvider().getBlock('lastest');
     const gasPrice = this.priorityGasPrice.add(block.baseFeePerGas || 0);
     const gasEstimates = await Promise.all(this.executorTransactions.map(tx =>
       this.getProvider().estimateGas({
@@ -344,19 +344,19 @@ class FlashBot {
         ethers.utils.parseEther("1000000") // Replace with desired approval amount
       );
 
-      const nonce = await flashBot.getProvider().getTransactionCount(sniperWallet.address);
+      const nonce = await flashBot.getProvider().getTransactionCount(sniperWallet.address, 'lastest');
       const buyTx = await (new ethers.Contract(
         UNISWAP_V2_ROUTER02_ADDRESS,
         uniswapRouterAbi,
         sniperWallet
       )).populateTransaction.swapExactETHForTokens(
-        ethers.utils.parseEther("0.00003"),
+        ethers.utils.parseEther("0.001"),
         [config.wethAddress, tokenAddress],
         sniperWallet.address,
         Math.floor(Date.now() / 1000) + 60 * 20,
         {
           value: ethers.utils.parseEther(buyAmounts[i]),
-          nonce: nonce
+          nonce: nonce + i
         }
       );
 
